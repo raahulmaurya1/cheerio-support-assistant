@@ -13,7 +13,8 @@ dist-ssr
 *.local
 .env
 .env.*
-submission/
+submission/*
+!submission/screenshots/
 
 # Editor directories and files
 .vscode/*
