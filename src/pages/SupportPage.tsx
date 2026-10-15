@@ -7,7 +7,17 @@ import { commonIssues } from "../data/mockData";
 import { t } from "../data/i18n";
 
 export function SupportPage() {
-  const { page, tr, language, setLanguage, startConversation, messages, thinking, setPage } = useApp();
+  const {
+    page,
+    tr,
+    language,
+    setLanguage,
+    startConversation,
+    sendChatMessage,
+    messages,
+    thinking,
+    setPage,
+  } = useApp();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,7 +63,7 @@ export function SupportPage() {
           <p className="mb-2 text-xs text-muted">{tr("home.privacyNote")}</p>
           <ChatInput
             disabled={thinking}
-            onSend={(text, attachment) => startConversation(text, undefined, attachment)}
+            onSend={(text, attachment) => sendChatMessage(text, attachment)}
           />
         </div>
       </div>

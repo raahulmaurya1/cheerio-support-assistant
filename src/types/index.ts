@@ -21,11 +21,23 @@ export type IssueId =
 export type ChannelOption = "whatsapp" | "instagram" | "other";
 export type YesNo = "yes" | "no";
 export type YesNoUnsure = "yes" | "no" | "unsure";
+export type WhatsappStatusOption = "disconnected" | "qr_code" | "connected_silent";
+export type TemplateStatusOption = "in_review" | "rejected" | "approved";
+export type TemplateActionOption = "vars_tested" | "vars_missing" | "pending_meta";
+export type WorkflowEventOption = "order_created" | "abandoned_cart" | "incoming_message";
+export type IntegrationStatusOption = "oauth_error" | "store_url" | "sync_issue";
 
 export interface DiagnosticAnswers {
   playgroundResponds: YesNo | null;
   channel: ChannelOption | null;
   workflowActive: YesNoUnsure | null;
+  workflowEvent: WorkflowEventOption | null;
+  whatsappStatus: WhatsappStatusOption | null;
+  whatsappRelogin: YesNoUnsure | null;
+  templateStatus: TemplateStatusOption | null;
+  templateAction: TemplateActionOption | null;
+  integrationStatus: IntegrationStatusOption | null;
+  integrationAdmin: YesNoUnsure | null;
 }
 
 export type CheckStatus = "checked" | "needs_attention" | "not_verified" | "failed";
@@ -42,7 +54,18 @@ export interface ChatOption {
 }
 
 export type MessageCta = "view_diagnosis" | "contact_support" | "view_guides";
-export type QuestionId = "playground" | "channel" | "workflow" | "clarify";
+export type QuestionId =
+  | "playground"
+  | "channel"
+  | "workflow"
+  | "workflow_event"
+  | "clarify"
+  | "whatsapp_status"
+  | "whatsapp_relogin"
+  | "template_status"
+  | "template_action"
+  | "integration_status"
+  | "integration_admin";
 
 export interface ChatMessage {
   id: string;

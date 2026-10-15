@@ -18,6 +18,7 @@ import {
   clarifyingMessage,
   createTicket,
   emptyAnswers,
+  getAcknowledgmentKey,
   issueNeedsQuestions,
   nextQuestionId,
   questionMessage,
@@ -99,6 +100,7 @@ interface AppContextValue {
   beginEscalation: () => void;
   submitTicket: () => void;
   startConversation: (text: string, issue?: IssueId, attachment?: Attachment | null) => void;
+  sendChatMessage: (text: string, attachment?: Attachment | null) => void;
   selectOption: (messageId: string, optionId: string) => void;
   rewindToQuestion: (messageId: string) => void;
   activeTutorial: Tutorial | null;
@@ -202,7 +204,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMessages((prev) => [...prev, assistantText(textKey, { cta, variant: result.noDocs ? "warning" : "info" })]);
       later(450, () => {
         setThinking(false);
-        setPage("troubleshooting");
       });
     },
     [later, resetFixState],
@@ -314,8 +315,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const questionId = target.questionId;
       const nextAnswers = applyAnswer(answers, questionId, optionId);
       setAnswers(nextAnswers);
-      const currentIssue = issueId ?? "assistant_whatsapp";
-      later(500, () => pushAssistantFollowUp(currentIssue, nextAnswers));
+      const currentIssue = issueId ?? "whatsapp_connection";
+      const ackKey = getAcknowledgmentKey(questionId, optionId);
+
+      if (ackKey) {
+        later(400, () => {
+          setMessages((prev) => [...prev, assistantText(ackKey)]);
+          later(600, () => pushAssistantFollowUp(currentIssue, nextAnswers));
+        });
+      } else {
+        later(500, () => pushAssistantFollowUp(currentIssue, nextAnswers));
+      }
     },
     [answers, finishDiagnosis, issueId, later, messages, pushAssistantFollowUp],
   );
@@ -341,7 +351,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ...prev, channel: null, workflowActive: null };
       }
       if (target?.questionId === "workflow") {
-        return { ...prev, workflowActive: null };
+        return { ...prev, workflowActive: null, workflowEvent: null };
+      }
+      if (target?.questionId === "workflow_event") {
+        return { ...prev, workflowEvent: null };
+      }
+      if (target?.questionId === "whatsapp_status") {
+        return { ...prev, whatsappStatus: null, whatsappRelogin: null };
+      }
+      if (target?.questionId === "whatsapp_relogin") {
+        return { ...prev, whatsappRelogin: null };
+      }
+      if (target?.questionId === "template_status") {
+        return { ...prev, templateStatus: null, templateAction: null };
+      }
+      if (target?.questionId === "template_action") {
+        return { ...prev, templateAction: null };
+      }
+      if (target?.questionId === "integration_status") {
+        return { ...prev, integrationStatus: null, integrationAdmin: null };
+      }
+      if (target?.questionId === "integration_admin") {
+        return { ...prev, integrationAdmin: null };
       }
       if (target?.questionId === "clarify") {
         return emptyAnswers();
@@ -350,6 +381,149 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     setPage("assist");
   }, [messages, resetFixState]);
+
+  const sendChatMessage = useCallback(
+    (text: string, attachment?: Attachment | null) => {
+      const trimmed = text.trim();
+      if (!trimmed && !attachment) return;
+
+      if (messages.length === 0) {
+        startConversation(trimmed, undefined, attachment);
+        return;
+      }
+
+      // Check if there is an active unanswered question
+      const activeQuestion = [...messages]
+        .reverse()
+        .find((m) => m.questionId && !m.selectedOptionId);
+
+      if (activeQuestion && activeQuestion.questionId) {
+        const lower = trimmed.toLowerCase();
+        const matchedOption =
+          activeQuestion.options?.find((opt) => {
+            const label = tr(opt.labelKey).toLowerCase();
+            return (
+              lower.includes(opt.id.toLowerCase()) ||
+              lower.includes(label) ||
+              (opt.id === "yes" &&
+                (lower.includes("yes") ||
+                  lower.includes("yeah") ||
+                  lower.includes("ha") ||
+                  lower.includes("haan") ||
+                  lower.includes("हाँ"))) ||
+              (opt.id === "no" &&
+                (lower.includes("no") ||
+                  lower.includes("nope") ||
+                  lower.includes("nahi") ||
+                  lower.includes("nah") ||
+                  lower.includes("नहीं"))) ||
+              (opt.id === "qr_code" &&
+                (lower.includes("qr") ||
+                  lower.includes("scan") ||
+                  lower.includes("barcode") ||
+                  lower.includes("क्यूआर"))) ||
+              (opt.id === "disconnected" &&
+                (lower.includes("disconnect") ||
+                  lower.includes("red") ||
+                  lower.includes("off") ||
+                  lower.includes("बंद"))) ||
+              (opt.id === "connected_silent" &&
+                (lower.includes("silent") ||
+                  lower.includes("no chat") ||
+                  lower.includes("आ नहीं रहे"))) ||
+              (opt.id === "in_review" &&
+                (lower.includes("review") ||
+                  lower.includes("pending") ||
+                  lower.includes("wait") ||
+                  lower.includes("पेंडिंग"))) ||
+              (opt.id === "rejected" &&
+                (lower.includes("reject") ||
+                  lower.includes("denied") ||
+                  lower.includes("खारिज"))) ||
+              (opt.id === "approved" &&
+                (lower.includes("approved") ||
+                  lower.includes("स्वीकृत"))) ||
+              (opt.id === "vars_tested" &&
+                (lower.includes("test") ||
+                  lower.includes("filled") ||
+                  lower.includes("भरे"))) ||
+              (opt.id === "vars_missing" &&
+                (lower.includes("miss") ||
+                  lower.includes("empty") ||
+                  lower.includes("खाली"))) ||
+              (opt.id === "order_created" &&
+                (lower.includes("order") ||
+                  lower.includes("ऑर्डर"))) ||
+              (opt.id === "abandoned_cart" &&
+                (lower.includes("cart") ||
+                  lower.includes("abandon") ||
+                  lower.includes("कार्ट"))) ||
+              (opt.id === "incoming_message" &&
+                (lower.includes("incoming") ||
+                  lower.includes("message") ||
+                  lower.includes("मैसेज"))) ||
+              (opt.id === "oauth_error" &&
+                (lower.includes("admin") ||
+                  lower.includes("perm") ||
+                  lower.includes("oauth") ||
+                  lower.includes("अनुमति"))) ||
+              (opt.id === "store_url" &&
+                (lower.includes("url") ||
+                  lower.includes("store") ||
+                  lower.includes("पहचान"))) ||
+              (opt.id === "sync_issue" &&
+                (lower.includes("sync") ||
+                  lower.includes("सिंक")))
+            );
+          }) ?? activeQuestion.options?.[0];
+
+        if (matchedOption) {
+          selectOption(activeQuestion.id, matchedOption.id);
+          return;
+        }
+      }
+
+      // User sends message when diagnosis or conversation already progressed
+      const userMessage: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        role: "user",
+        text: trimmed || (attachment ? attachment.name : ""),
+        createdAt: Date.now(),
+        attachmentName: attachment?.name,
+        attachmentUrl: attachment?.url,
+      };
+      setMessages((prev) => [...prev, userMessage]);
+      setThinking(true);
+
+      const lower = trimmed.toLowerCase();
+      later(700, () => {
+        setThinking(false);
+        if (
+          lower.includes("human") ||
+          lower.includes("agent") ||
+          lower.includes("support") ||
+          lower.includes("person") ||
+          lower.includes("मदद")
+        ) {
+          setMessages((prev) => [
+            ...prev,
+            assistantText("assist.contactSupport", { cta: "contact_support" }),
+          ]);
+        } else if (diagnosis) {
+          setMessages((prev) => [
+            ...prev,
+            assistantText("assist.postDiagReply", { cta: "view_diagnosis" }),
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            assistantText("assist.thinking"),
+          ]);
+        }
+      });
+    },
+    [diagnosis, later, messages, selectOption, startConversation, tr],
+  );
 
   const activeTutorial = useMemo(() => {
     if (diagnosis?.tutorialId) {
@@ -574,6 +748,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       beginEscalation,
       submitTicket,
       startConversation,
+      sendChatMessage,
       selectOption,
       rewindToQuestion,
       activeTutorial,
@@ -625,6 +800,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       beginEscalation,
       submitTicket,
       startConversation,
+      sendChatMessage,
       selectOption,
       rewindToQuestion,
       setAutopilotRequest,

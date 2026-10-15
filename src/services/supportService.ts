@@ -3,15 +3,22 @@ import { getTutorialForIssue } from "./knowledgeService";
 import type {
   ChannelOption,
   ChatMessage,
+  ChatOption,
   CheckStatus,
   DiagnosticAnswers,
   DiagnosticCheck,
   DiagnosisResult,
   EscalationDraft,
+  IntegrationStatusOption,
   IssueId,
   Language,
+  QuestionId,
   ResolutionResult,
   SupportTicket,
+  TemplateActionOption,
+  TemplateStatusOption,
+  WhatsappStatusOption,
+  WorkflowEventOption,
   YesNo,
   YesNoUnsure,
 } from "../types";
@@ -66,7 +73,13 @@ export function classifyIssue(text: string): IssueId {
 }
 
 export function issueNeedsQuestions(issueId: IssueId): boolean {
-  return issueId === "assistant_whatsapp" || issueId === "workflow_trigger";
+  return (
+    issueId === "assistant_whatsapp" ||
+    issueId === "workflow_trigger" ||
+    issueId === "whatsapp_connection" ||
+    issueId === "template_approval" ||
+    issueId === "integration"
+  );
 }
 
 export function emptyAnswers(): DiagnosticAnswers {
@@ -74,6 +87,13 @@ export function emptyAnswers(): DiagnosticAnswers {
     playgroundResponds: null,
     channel: null,
     workflowActive: null,
+    workflowEvent: null,
+    whatsappStatus: null,
+    whatsappRelogin: null,
+    templateStatus: null,
+    templateAction: null,
+    integrationStatus: null,
+    integrationAdmin: null,
   };
 }
 
@@ -128,10 +148,11 @@ export function buildDiagnosis(
   }
 
   if (issueId === "whatsapp_connection") {
+    const isQr = answers.whatsappStatus === "qr_code";
     return {
       issueId,
-      titleKey: "diag.whatsapp.title",
-      bodyKey: "diag.whatsapp.body",
+      titleKey: isQr ? "diag.whatsapp.qr.title" : "diag.whatsapp.title",
+      bodyKey: isQr ? "diag.whatsapp.qr.body" : "diag.whatsapp.body",
       checks: [
         check("connection", "check.connection", "needs_attention"),
         check("trigger", "check.trigger", "not_verified"),
@@ -269,7 +290,7 @@ export function buildDiagnosis(
 
 export function applyAnswer(
   answers: DiagnosticAnswers,
-  questionId: "playground" | "channel" | "workflow",
+  questionId: QuestionId,
   optionId: string,
 ): DiagnosticAnswers {
   if (questionId === "playground") {
@@ -278,23 +299,63 @@ export function applyAnswer(
   if (questionId === "channel") {
     return { ...answers, channel: optionId as ChannelOption };
   }
-  return { ...answers, workflowActive: optionId as YesNoUnsure };
+  if (questionId === "workflow") {
+    return { ...answers, workflowActive: optionId as YesNoUnsure };
+  }
+  if (questionId === "workflow_event") {
+    return { ...answers, workflowEvent: optionId as WorkflowEventOption };
+  }
+  if (questionId === "whatsapp_status") {
+    return { ...answers, whatsappStatus: optionId as WhatsappStatusOption };
+  }
+  if (questionId === "whatsapp_relogin") {
+    return { ...answers, whatsappRelogin: optionId as YesNoUnsure };
+  }
+  if (questionId === "template_status") {
+    return { ...answers, templateStatus: optionId as TemplateStatusOption };
+  }
+  if (questionId === "template_action") {
+    return { ...answers, templateAction: optionId as TemplateActionOption };
+  }
+  if (questionId === "integration_status") {
+    return { ...answers, integrationStatus: optionId as IntegrationStatusOption };
+  }
+  if (questionId === "integration_admin") {
+    return { ...answers, integrationAdmin: optionId as YesNoUnsure };
+  }
+  return answers;
 }
 
 export function nextQuestionId(
   issueId: IssueId,
   answers: DiagnosticAnswers,
-): "playground" | "channel" | "workflow" | null {
+): QuestionId | null {
   if (!issueNeedsQuestions(issueId)) return null;
+  if (issueId === "whatsapp_connection") {
+    if (!answers.whatsappStatus) return "whatsapp_status";
+    if (!answers.whatsappRelogin) return "whatsapp_relogin";
+    return null;
+  }
+  if (issueId === "template_approval") {
+    if (!answers.templateStatus) return "template_status";
+    if (!answers.templateAction) return "template_action";
+    return null;
+  }
+  if (issueId === "integration") {
+    if (!answers.integrationStatus) return "integration_status";
+    if (!answers.integrationAdmin) return "integration_admin";
+    return null;
+  }
   if (issueId === "assistant_whatsapp") {
     if (!answers.playgroundResponds) return "playground";
+    if (answers.playgroundResponds === "no") return null;
     if (!answers.channel) return "channel";
     if (!answers.workflowActive) return "workflow";
     return null;
   }
   if (issueId === "workflow_trigger") {
     if (!answers.workflowActive) return "workflow";
-    if (!answers.channel) return "channel";
+    if (!answers.workflowEvent) return "workflow_event";
     return null;
   }
   return null;
@@ -325,26 +386,68 @@ export function clarifyingMessage(): ChatMessage {
   });
 }
 
-export function questionMessage(
-  questionId: "playground" | "channel" | "workflow",
-): ChatMessage {
-  const options =
-    questionId === "playground"
-      ? [
-          { id: "yes", labelKey: "opt.yes" },
-          { id: "no", labelKey: "opt.no" },
-        ]
-      : questionId === "channel"
-        ? [
-            { id: "whatsapp", labelKey: "opt.whatsapp" },
-            { id: "instagram", labelKey: "opt.instagram" },
-            { id: "other", labelKey: "opt.other" },
-          ]
-        : [
-            { id: "yes", labelKey: "opt.yes" },
-            { id: "no", labelKey: "opt.no" },
-            { id: "unsure", labelKey: "opt.unsure" },
-          ];
+export function questionMessage(questionId: QuestionId): ChatMessage {
+  let options: ChatOption[] = [];
+  if (questionId === "playground") {
+    options = [
+      { id: "yes", labelKey: "opt.yes" },
+      { id: "no", labelKey: "opt.no" },
+    ];
+  } else if (questionId === "channel") {
+    options = [
+      { id: "whatsapp", labelKey: "opt.whatsapp" },
+      { id: "instagram", labelKey: "opt.instagram" },
+      { id: "other", labelKey: "opt.other" },
+    ];
+  } else if (questionId === "workflow") {
+    options = [
+      { id: "yes", labelKey: "opt.yes" },
+      { id: "no", labelKey: "opt.no" },
+      { id: "unsure", labelKey: "opt.unsure" },
+    ];
+  } else if (questionId === "workflow_event") {
+    options = [
+      { id: "order_created", labelKey: "opt.workflow.order" },
+      { id: "abandoned_cart", labelKey: "opt.workflow.cart" },
+      { id: "incoming_message", labelKey: "opt.workflow.incoming" },
+    ];
+  } else if (questionId === "whatsapp_status") {
+    options = [
+      { id: "disconnected", labelKey: "opt.whatsapp.disconnected" },
+      { id: "qr_code", labelKey: "opt.whatsapp.qr" },
+      { id: "connected_silent", labelKey: "opt.whatsapp.connectedSilent" },
+    ];
+  } else if (questionId === "whatsapp_relogin") {
+    options = [
+      { id: "yes", labelKey: "opt.yes" },
+      { id: "no", labelKey: "opt.no" },
+      { id: "unsure", labelKey: "opt.unsure" },
+    ];
+  } else if (questionId === "template_status") {
+    options = [
+      { id: "in_review", labelKey: "opt.template.inReview" },
+      { id: "rejected", labelKey: "opt.template.rejected" },
+      { id: "approved", labelKey: "opt.template.approved" },
+    ];
+  } else if (questionId === "template_action") {
+    options = [
+      { id: "vars_tested", labelKey: "opt.template.tested" },
+      { id: "vars_missing", labelKey: "opt.template.missing" },
+      { id: "pending_meta", labelKey: "opt.template.pending" },
+    ];
+  } else if (questionId === "integration_status") {
+    options = [
+      { id: "oauth_error", labelKey: "opt.integration.oauth" },
+      { id: "store_url", labelKey: "opt.integration.storeUrl" },
+      { id: "sync_issue", labelKey: "opt.integration.sync" },
+    ];
+  } else if (questionId === "integration_admin") {
+    options = [
+      { id: "yes", labelKey: "opt.integration.owner" },
+      { id: "no", labelKey: "opt.integration.staff" },
+      { id: "unsure", labelKey: "opt.integration.unsure" },
+    ];
+  }
 
   return {
     id: createId("msg"),
@@ -354,6 +457,60 @@ export function questionMessage(
     questionId,
     createdAt: Date.now(),
   };
+}
+
+export function getAcknowledgmentKey(
+  questionId: QuestionId,
+  optionId: string,
+): string | null {
+  if (questionId === "playground") {
+    return optionId === "yes" ? "ack.playground.yes" : "ack.playground.no";
+  }
+  if (questionId === "channel") {
+    if (optionId === "whatsapp") return "ack.channel.whatsapp";
+    if (optionId === "instagram") return "ack.channel.instagram";
+    return "ack.channel.other";
+  }
+  if (questionId === "workflow") {
+    if (optionId === "yes") return "ack.workflow.yes";
+    if (optionId === "no") return "ack.workflow.no";
+    return "ack.workflow.unsure";
+  }
+  if (questionId === "workflow_event") {
+    if (optionId === "order_created") return "ack.workflow.order";
+    if (optionId === "abandoned_cart") return "ack.workflow.cart";
+    return "ack.workflow.incoming";
+  }
+  if (questionId === "whatsapp_status") {
+    if (optionId === "qr_code") return "ack.whatsapp.qr";
+    if (optionId === "disconnected") return "ack.whatsapp.disconnected";
+    if (optionId === "connected_silent") return "ack.whatsapp.connectedSilent";
+  }
+  if (questionId === "whatsapp_relogin") {
+    if (optionId === "yes") return "ack.whatsapp.reloginYes";
+    if (optionId === "no") return "ack.whatsapp.reloginNo";
+  }
+  if (questionId === "template_status") {
+    if (optionId === "in_review") return "ack.template.inReview";
+    if (optionId === "rejected") return "ack.template.rejected";
+    return "ack.template.approved";
+  }
+  if (questionId === "template_action") {
+    if (optionId === "vars_tested") return "ack.template.tested";
+    if (optionId === "vars_missing") return "ack.template.missing";
+    return "ack.template.pending";
+  }
+  if (questionId === "integration_status") {
+    if (optionId === "oauth_error") return "ack.integration.oauth";
+    if (optionId === "store_url") return "ack.integration.storeUrl";
+    return "ack.integration.sync";
+  }
+  if (questionId === "integration_admin") {
+    if (optionId === "yes") return "ack.integration.owner";
+    if (optionId === "no") return "ack.integration.staff";
+    return "ack.integration.unsure";
+  }
+  return null;
 }
 
 export function checkResolution(stepsDone: number, stepsTotal: number): ResolutionResult {
